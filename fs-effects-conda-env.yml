@@ -4,5 +4,10 @@ channels:
   - https://repo.anaconda.com/pkgs/r
 dependencies:
   - python=3.9.16
+  - pip=24.2
   - ipykernel
-prefix: /Users/sjquiton/anaconda3/envs/finite-size-effects
+  - pip:
+      - h5py==3.12.1
+      - numpy==1.26.4
+      - pyscf==2.7.0
+      - scipy==1.13.1
