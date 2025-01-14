@@ -3,6 +3,7 @@
 
 
 import numpy as np
+from pyscf.pbc import df
 
 
 def minimum_image(cell, kpts):
@@ -74,7 +75,7 @@ def contracted_gaussian_model_centered(params, xyz, num_gaussians=1,isotropic=Fa
     num_gauss_params = 4 # per gaussian
     if isotropic:
         num_gauss_params -= 2
-    
+
     if with_coul:
         def gaussian_model(params, xyz):
             sigma_x, sigma_y, sigma_z = params
@@ -104,12 +105,11 @@ def contracted_gaussian_model_centered(params, xyz, num_gaussians=1,isotropic=Fa
 
     return result
 
+
 def fit_function_3d(xyz_input, f_input, nocc, subtract_nocc=False, num_gaussians=1, force_isotropic=False,
                     force_centered=False, with_coul=False, auto_guess=True, method="scipy_minimize"):
 
     # Initial guess for parameters
-    # initial_guess = [nocc/num_gaussians, 0.0, 0.0, 0.0,
-    #                  np.std(xyz_input[:, 0]), np.std(xyz_input[:, 1]), np.std(xyz_input[:, 2])] * num_gaussians
 
     if force_centered:
         if force_isotropic:
@@ -126,19 +126,16 @@ def fit_function_3d(xyz_input, f_input, nocc, subtract_nocc=False, num_gaussians
                 if a0 < 0.1:
                     a0 = 1.25
 
-            # a0 = 1.25
             beta = 0.5
             sigmas = [a0 * beta ** i for i in range(num_gaussians)]
             initial_guess[1::2] = sigmas
             num_gauss_params = 2
-            offset = 0
 
             sigma_indices = [1]
         else:
 
             initial_guess = [1./num_gaussians, 1.5, 1.5, 1.5] * num_gaussians
             num_gauss_params = 4
-            offset = 0
 
             sigma_indices = [1, 2, 3]
 
@@ -159,7 +156,6 @@ def fit_function_3d(xyz_input, f_input, nocc, subtract_nocc=False, num_gaussians
     else:
         initial_guess = [1./num_gaussians, 0.0, 0.0, 0.0, 1.5, 1.5, 1.5] * num_gaussians
         num_gauss_params = 7
-        offset = 3
         sigma_indices = [4, 5, 6]
 
         # Perform the curve fitting
@@ -213,10 +209,10 @@ def fit_function_3d(xyz_input, f_input, nocc, subtract_nocc=False, num_gaussians
                 print(f'Gaussian {i+1} parameters: c = {params[i*num_gauss_params]:.6f}, mu_x = 0.0,'
                       f'sigma = {params[i*num_gauss_params+1]:.6f}')
             else:
-            
+
                 print(f'Gaussian {i+1} parameters: c = {params[i*num_gauss_params]:.6f}, mu_x = 0.0, mu_y = 0.0, mu_z = 0.0,'
-                    f'sigma_x = {params[i*num_gauss_params+1]:.6f}, sigma_y = {params[i*num_gauss_params+2]:.6f},'
-                    f'sigma_z = {params[i*num_gauss_params+3]:.6f}')
+                      f'sigma_x = {params[i*num_gauss_params+1]:.6f}, sigma_y = {params[i*num_gauss_params+2]:.6f},'
+                      f'sigma_z = {params[i*num_gauss_params+3]:.6f}')
             # If sigmas are negative, make them positive
 
     else:
@@ -227,9 +223,10 @@ def fit_function_3d(xyz_input, f_input, nocc, subtract_nocc=False, num_gaussians
                     print(f' Sigma {j} negative, converting to positive')
 
             print(f'Gaussian {i+1} parameters: c = {params[i*num_gauss_params]:.6f}, mu_x = {params[i*num_gauss_params+1]:.6f}, mu_y = {params[i*num_gauss_params+2]:.6f}, mu_z = {params[i*num_gauss_params+3]:.6f}, '
-                 f'sigma_x = {params[i*num_gauss_params+4]:.6f}, sigma_y = {params[i*num_gauss_params+5]:.6f}, sigma_z = {params[i*num_gauss_params+6]:.6f}')
+                  f'sigma_x = {params[i*num_gauss_params+4]:.6f}, sigma_y = {params[i*num_gauss_params+5]:.6f}, sigma_z = {params[i*num_gauss_params+6]:.6f}')
 
     return params
+
 
 def compute_SqG_anisotropy(mf, cell, nks=np.array([3,3,3]), N_local=7, dim=3, dm_kpts=None, mo_coeff_kpts=None,
                            SqG_filename=None, num_gaussians=1, return_all_params=False,force_centered=True,
@@ -252,7 +249,7 @@ def compute_SqG_anisotropy(mf, cell, nks=np.array([3,3,3]), N_local=7, dim=3, dm
     if dm_kpts is None and SqG_filename is None:
         df_type = df.GDF
         mf.with_df = df_type(cell, kpts).build()
-        e1 = mf.kernel()
+        mf.kernel()
         dm_kpts = mf.make_rdm1()
         if mo_coeff_kpts is None:
             mo_coeff_kpts = np.array(mf.mo_coeff_kpts)
@@ -439,7 +436,7 @@ def closest_fbz_distance(Lvec_recip,N_local):
             pairs.append((i,j))
 
     # Find the minimum distance
-    r1 = np.min(N_local*distances) #must be scaled by nlocal
+    r1 = np.min(N_local*distances) # must be scaled by nlocal
     return r1, pairs[np.argmin(distances)]
 
 
@@ -453,19 +450,14 @@ def build_SqG(nkpts, nG, nbands, kGrid, qGrid, kmf, uKpts, rptGrid3D, dvol, NsCe
 def build_SqG_k1k2(nkpts, nG, nbands, kGrid1,kGrid2, qGrid, kmf, uKpts1,uKpts2, rptGrid3D, dvol, NsCell,
                    GptGrid3D, nks=[1,1,1], subtract_nocc=0, debug_options={}):
 
-    import os
     import numpy as np
     import scipy.io
     import time
-    import pymp
 
     build_SqG_start_time = time.time()
     # SqG = pymp.shared.array((nkpts, nG), dtype=np.float64)
     SqG = np.zeros((nkpts, nG), dtype=np.float64)
-    print("SqG MEM USAGE (KB) IS: {:.3f}".format( SqG.nbytes / (1024)))
-
-    # nthreads = int(os.environ['OMP_NUM_THREADS'])
-    # with pymp.Parallel(np.min([nthreads, 4])) as p:
+    print("SqG MEM USAGE (KB) IS: {:.3f}".format(SqG.nbytes / (1024)))
 
     if debug_options:
         nqG = np.prod(NsCell)*nkpts
@@ -546,7 +538,6 @@ def build_uKpts(kmf, kpts, dm_kpts, mo_coeff_kpts):
     Lvec_real = kmf.cell.lattice_vectors()
     NsCell = np.array(kmf.cell.mesh)
     L_delta = Lvec_real / NsCell[:, None]
-    dvol = np.abs(np.linalg.det(L_delta))
     xv, yv, zv = np.meshgrid(np.arange(NsCell[0]), np.arange(NsCell[1]), np.arange(NsCell[2]), indexing='ij')
     mesh_idx = np.hstack([xv.reshape(-1, 1), yv.reshape(-1, 1), zv.reshape(-1, 1)])
     rptGrid3D = mesh_idx @ L_delta
@@ -564,6 +555,7 @@ def build_uKpts(kmf, kpts, dm_kpts, mo_coeff_kpts):
             uKpts[k, n, :] = np.squeeze(exp_part * utmp)
     return uKpts
 
+
 def make_ss_inputs(kmf,kpts,dm_kpts, mo_coeff_kpts):
     from pyscf.pbc.tools import madelung,get_monkhorst_pack_size
     import time
@@ -579,7 +571,7 @@ def make_ss_inputs(kmf,kpts,dm_kpts, mo_coeff_kpts):
     E_madelung = E_standard - nocc * Madelung
     print(E_madelung)
 
-    # Construct Grids 
+    # Construct Grids
 
     shiftFac=np.zeros(3)
     kshift_abs = np.sum(kmf.cell.reciprocal_vectors()*shiftFac / nk,axis=0)
@@ -596,7 +588,6 @@ def make_ss_inputs(kmf,kpts,dm_kpts, mo_coeff_kpts):
 def madelung_modified(cell, kpts, shifted, ew_eta=None, anisotropic=False):
     # Here, the only difference from overleaf is that eta here is defined as 4eta^2 = eta_paper
     from pyscf.pbc.tools.pbc import get_monkhorst_pack_size
-    from pyscf.pbc.gto.cell import get_Gv_weights
 
     printstr = "Modified Madelung correction"
     if anisotropic:
@@ -614,7 +605,7 @@ def madelung_modified(cell, kpts, shifted, ew_eta=None, anisotropic=False):
     cell_input._atm = np.array([[1, cell._env.size, 0, 0, 0, 0]])
     cell_input._env = np.append(cell._env, [0., 0., 0.])
     cell_input.unit = 'B' # ecell.verbose = 0
-    cell_input.a = a = np.einsum('xi,x->xi', cell.lattice_vectors(), Nk)
+    cell_input.a = np.einsum('xi,x->xi', cell.lattice_vectors(), Nk)
 
     if ew_eta is None:
         ew_eta, _ = cell_input.get_ewald_params(cell_input.precision, cell_input.mesh)
@@ -647,11 +638,9 @@ def madelung_modified(cell, kpts, shifted, ew_eta=None, anisotropic=False):
         sum_term = weights*np.einsum('i->',component).real
         # Second Term
         if anisotropic:
-            from scipy.integrate import tplquad, nquad
-            from cubature import cubature
             denom = -1 / (4 * ew_eta ** 2)
 
-            # i denotes coordinate, g denotes vector number 
+            # i denotes coordinate, g denotes vector number
             def integrand(x, y, z):
                 qG = np.array([x, y, z])
                 denom = -1 / (4 * ew_eta ** 2)
@@ -667,7 +656,7 @@ def madelung_modified(cell, kpts, shifted, ew_eta=None, anisotropic=False):
                     mask = (np.abs(x) < 1e-12) & (np.abs(y) < 1e-12) & (np.abs(z) < 1e-12)
                     out[mask] = 0  # gaussian case
                 return out
-            
+
             def integrand_vectorized(x,y,z):
                 qG = np.array([x, y, z])
                 denom = -1 / (4 * ew_eta ** 2)
@@ -735,11 +724,11 @@ def madelung_modified(cell, kpts, shifted, ew_eta=None, anisotropic=False):
         ewg *= inv_area # * 0.5
 
         ewg_analytical = 2 * ew_eta / np.sqrt(np.pi)
-        
+
         return ewg - ewg_analytical
 
 
-def khf_ssng(mf, nks, num_gaussians=1, force_centered=True, force_isotropic=True, fit_with_coul=False, N_local=None, 
+def khf_ssng(mf, nks, num_gaussians=1, force_centered=True, force_isotropic=True, fit_with_coul=False, N_local=None,
              sigma_multiplier=1.0,sigma=None,auto_guess=True,fit_method="scipy_minimize",qG_norm_cutoff=None):
     from pyscf.pbc.tools import madelung
     import time
