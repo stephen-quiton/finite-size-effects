@@ -256,9 +256,6 @@ def compute_SqG_anisotropy(mf, cell, nks=np.array([3,3,3]), N_local=7, dim=3, dm
     elif mo_coeff_kpts is None:
         raise ValueError("mo_coeff_kpts must be provided if dm_kpts is provided")
 
-    # E_standard, E_madelung, uKpts, qGrid, kGrid = make_ss_inputs(kmf=mf, kpts=kpts, dm_kpts=dm_kpts,
-    #                                                              mo_coeff_kpts=mo_coeff_kpts)
-
     uKpts = build_uKpts(mf, kpts, dm_kpts, mo_coeff_kpts)
     nocc = cell.tot_electrons() // 2
 
@@ -396,50 +393,6 @@ def compute_SqG_anisotropy(mf, cell, nks=np.array([3,3,3]), N_local=7, dim=3, dm
         return sigmas
 
 
-def precompute_r1_prefactor(power_law_start,power_law_exponent,Nk,delta,gamma,M,r1,normal_vector):
-    # # scaled_normal_vector = normal_vector*r1
-    # qx = scaled_normal_vector[0]
-    # qy = scaled_normal_vector[1]
-    # qz = scaled_normal_vector[2]
-    exp_term = (normal_vector*M)
-    # r1 is the minimum distance from the center of the BZ to the boundary
-    r1_prefactor_max = (-np.log(delta)/4)**(-1./2.) * np.sqrt(np.dot(exp_term,exp_term))
-    r1_prefactor_min = (-np.log(gamma)/4)**(-1./2.) * np.sqrt(np.dot(exp_term,exp_term))
-
-    def compute_r1_power_law(start,r1_max,r1_min,exponent,nk_1d):
-        a = (r1_max-r1_min)*start**(-exponent)
-        nk_1d = nk_1d.astype('float64')
-        assert (exponent<0)
-        return a*(nk_1d)**exponent + r1_min
-
-    r1_prefactor_comp = compute_r1_power_law(power_law_start,r1_prefactor_max,r1_prefactor_min,power_law_exponent,Nk)
-    # print(f'Precomputed r1 prefactor is {r1_prefactor_comp:.3f}')
-    return r1_prefactor_comp
-
-
-# make function determining distance from point to a plane containing the origin
-def dist_to_plane(point, normal):
-    return np.abs(np.dot(point, normal) / np.linalg.norm(normal))
-
-
-def closest_fbz_distance(Lvec_recip,N_local):
-    # Query point is the center of the parallelipid
-    query_point = np.sum(Lvec_recip,axis=0) / 2
-    # query_pooint = np.
-
-    # For each unique pair of reciprocal vectors, find distance from the query point to the plane containing the origin
-    distances = []
-    pairs = []
-    for i in range(3):
-        for j in range(i+1, 3):
-            distances.append(dist_to_plane(query_point, np.cross(Lvec_recip[i], Lvec_recip[j])))
-            pairs.append((i,j))
-
-    # Find the minimum distance
-    r1 = np.min(N_local*distances) # must be scaled by nlocal
-    return r1, pairs[np.argmin(distances)]
-
-
 def build_SqG(nkpts, nG, nbands, kGrid, qGrid, kmf, uKpts, rptGrid3D, dvol, NsCell, GptGrid3D, nks=[1,1,1],
               subtract_nocc=0, debug_options={}):
 
@@ -554,35 +507,6 @@ def build_uKpts(kmf, kpts, dm_kpts, mo_coeff_kpts):
             exp_part = np.exp(-1j * (rptGrid3D @ np.reshape(kGrid[k], (-1, 1))))
             uKpts[k, n, :] = np.squeeze(exp_part * utmp)
     return uKpts
-
-
-def make_ss_inputs(kmf,kpts,dm_kpts, mo_coeff_kpts):
-    from pyscf.pbc.tools import madelung,get_monkhorst_pack_size
-    import time
-    ss_inputs_start = time.time()
-    Madelung = madelung(kmf.cell, kpts)
-    nocc = kmf.cell.tot_electrons() // 2
-    nk = get_monkhorst_pack_size(kmf.cell, kpts)
-    Nk = np.prod(nk)
-    kmf.exxdiv = None
-    _, K = kmf.get_jk(cell=kmf.cell, dm_kpts=dm_kpts, kpts=kpts, kpts_band=kpts,exxdiv=None)
-    E_standard = -1. / Nk * np.einsum('kij,kji', dm_kpts, K) * 0.5
-    E_standard /= 2
-    E_madelung = E_standard - nocc * Madelung
-    print(E_madelung)
-
-    # Construct Grids
-
-    shiftFac=np.zeros(3)
-    kshift_abs = np.sum(kmf.cell.reciprocal_vectors()*shiftFac / nk,axis=0)
-    qGrid = minimum_image(kmf.cell, kshift_abs - kpts)
-    kGrid = minimum_image(kmf.cell, kpts)
-
-    # Construct the wavefunctions
-    uKpts = build_uKpts(kmf, kpts, dm_kpts, mo_coeff_kpts)
-    ss_inputs_end = time.time()
-    print(f"Time taken for building uKpts: {ss_inputs_end - ss_inputs_start:.2f} s")
-    return np.real(E_standard), np.real(E_madelung), uKpts, qGrid, kGrid
 
 
 def madelung_modified(cell, kpts, shifted, ew_eta=None, anisotropic=False):
